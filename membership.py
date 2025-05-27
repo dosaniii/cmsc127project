@@ -1,6 +1,7 @@
 from datetime import datetime
 from tabulate import tabulate
 from mysql.connector import Error
+from typing import Union, Optional
 
 class MembershipManager:
     def __init__(self, db_manager):
@@ -67,7 +68,7 @@ class MembershipManager:
         except Error as e:
             print(f"✗ Error adding new member: {e}")
 
-    def add_member_to_org(self, stud_no: str | None = None):
+    def add_member_to_org(self, stud_no: Optional[str] = None):
         """Add a member to an organization"""
         try:
             if stud_no is None:
