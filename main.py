@@ -1,8 +1,8 @@
 # Main module for the Student Organization Management System
 
-import hashlib
 import mysql.connector
 from datetime import datetime
+from typing import Tuple
 from membership import MembershipManager
 from organization import OrganizationManager
 from fees import FeesManager
@@ -36,24 +36,26 @@ class DatabaseManager:
         if hasattr(self, 'connection') and self.connection:
             self.connection.close()
 
-def hash_password(password: str) -> str:
-    """Hash a password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def authenticate_user(db_manager: DatabaseManager, username: str, password: str) -> bool:
-    """Authenticate a user (admin or regular user)"""
-    hashed_password = hash_password(password)
-    
+def authenticate_user(db_manager: DatabaseManager, username: str, password: str) -> Tuple[bool, str]:
+    """Authenticate a user and return their role"""
     # Check admin credentials
     if username == "admin" and password == "admin":
-        return True
+        return True, "admin"
     
-    # Check regular user credentials
-    db_manager.cursor.execute("SELECT * FROM student WHERE username = %s AND password = %s", 
-                            (username, hashed_password))
+    # Check organization member credentials
+    query = """
+        SELECT s.stud_no, b.role, b.org_id, o.org_name
+        FROM student s
+        JOIN belongs_to b ON s.stud_no = b.stud_no
+        JOIN organization o ON b.org_id = o.org_id
+        WHERE s.stud_no = %s AND b.status = 'Active'
+    """
+    db_manager.cursor.execute(query, (username,))
     result = db_manager.cursor.fetchone()
     
-    return result is not None
+    if result:
+        return True, f"member_{result['role']}_{result['org_id']}"
+    return False, ""
 
 def signup(db_manager: DatabaseManager) -> bool:
     """Handle student signup"""
@@ -67,28 +69,16 @@ def signup(db_manager: DatabaseManager) -> bool:
         gender = input("Gender (M/F): ").upper()
         birthday = input("Birthday (YYYY-MM-DD): ")
         
-        # Get username and validate it's unique
-        while True:
-            username = input("Username: ")
-            db_manager.cursor.execute("SELECT stud_no FROM student WHERE username = %s", (username,))
-            if not db_manager.cursor.fetchone():
-                break
-            print("✗ Username already taken. Please choose another one.")
+        # Check if student number already exists
+        db_manager.cursor.execute("SELECT stud_no FROM student WHERE stud_no = %s", (stud_no,))
+        if db_manager.cursor.fetchone():
+            print("✗ Student number already exists!")
+            return False
         
-        # Get password securely
-        while True:
-            password = input("Password: ")
-            confirm_password = input("Confirm Password: ")
-            if password == confirm_password:
-                break
-            print("✗ Passwords do not match. Please try again.")
-        
-        # Hash the password
-        hashed_password = hash_password(password)
-        
-        query = """INSERT INTO student (stud_no, firstname, lastname, degrprog, batch, gender, birthday, username, password) 
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-        values = (stud_no, firstname, lastname, degrprog, batch, gender, birthday, username, hashed_password)
+        query = """INSERT INTO student (
+                    stud_no, firstname, lastname, degrprog, batch, gender, birthday
+                  ) VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+        values = (stud_no, firstname, lastname, degrprog, batch, gender, birthday)
         
         db_manager.cursor.execute(query, values)
         db_manager.connection.commit()
@@ -99,18 +89,39 @@ def signup(db_manager: DatabaseManager) -> bool:
         print(f"✗ Error during signup: {e}")
         return False
 
-def login(db_manager: DatabaseManager) -> bool:
-    """Handle user login"""
+def login(db_manager: DatabaseManager) -> Tuple[bool, str]:
+    """Handle user login and return user role"""
     print("\n=== Login ===")
-    username = input("Username: ")
-    password = input("Password: ")
+    print("1. Admin Login")
+    print("2. Organization Member Login")
     
-    if authenticate_user(db_manager, username, password):
-        print("✓ Login successful!")
-        return True
+    choice = input("\nEnter your choice (1-2): ")
+    
+    if choice == '1':
+        username = input("Username: ")
+        password = input("Password: ")
+        is_valid, role = authenticate_user(db_manager, username, password)
+        if is_valid and role == "admin":
+            print("✓ Admin login successful!")
+            return True, role
+        else:
+            print("✗ Invalid admin credentials!")
+            return False, ""
+            
+    elif choice == '2':
+        stud_no = input("Student Number: ")
+        is_valid, role = authenticate_user(db_manager, stud_no, "")
+        if is_valid and role.startswith("member_"):
+            # Extract role information
+            _, member_role, org_id = role.split("_")
+            print(f"✓ Login successful! Welcome to the organization.")
+            return True, role
+        else:
+            print("✗ Invalid student number or not an active organization member!")
+            return False, ""
     else:
-        print("✗ Invalid username or password!")
-        return False
+        print("Invalid choice!")
+        return False, ""
 
 def main():
     """Main function to run the Student Organization Management System"""
@@ -121,13 +132,13 @@ def main():
     with DatabaseManager() as db_manager:
         while True:
             print("\n1. Login")
-            print("2. Signup (Students Only)")
-            print("3. Exit")
+            print("2. Exit")
             
-            choice = input("\nEnter your choice (1-3): ")
+            choice = input("\nEnter your choice (1-2): ")
             
             if choice == '1':
-                if login(db_manager):
+                is_valid, role = login(db_manager)
+                if is_valid:
                     # Initialize managers
                     membership_manager = MembershipManager(db_manager)
                     organization_manager = OrganizationManager(db_manager)
@@ -137,32 +148,58 @@ def main():
                         print("\n" + "=" * 70)
                         print("                    MAIN MENU")
                         print("=" * 70)
-                        print("1. Manage Members")
-                        print("2. Manage Organizations")
-                        print("3. Manage Fees")
-                        print("4. Logout")
-                        print("5. Exit")
                         
-                        choice = input("\nEnter your choice (1-5): ")
-                        
-                        if choice == '1':
-                            membership_manager.manage_membership()
-                        elif choice == '2':
-                            organization_manager.manage_organizations()
-                        elif choice == '3':
-                            fees_manager.manage_fees()
-                        elif choice == '4':
-                            print("\nLogging out...")
-                            print("✓ Successfully logged out!")
-                            break
-                        elif choice == '5':
-                            print("\nThank you for using the Student Organization Management System!")
-                            return
+                        if role == "admin":
+                            print("1. Manage Members")
+                            print("2. Manage Organizations")
+                            print("3. Manage Fees")
+                            print("4. Logout")
+                            print("5. Exit")
+                            
+                            choice = input("\nEnter your choice (1-5): ")
+                            
+                            if choice == '1':
+                                membership_manager.manage_membership()
+                            elif choice == '2':
+                                organization_manager.manage_organizations()
+                            elif choice == '3':
+                                fees_manager.manage_fees()
+                            elif choice == '4':
+                                print("\nLogging out...")
+                                print("✓ Successfully logged out!")
+                                break
+                            elif choice == '5':
+                                print("\nThank you for using the Student Organization Management System!")
+                                return
+                            else:
+                                print("Invalid choice! Please try again.")
                         else:
-                            print("Invalid choice! Please try again.")
+                            # Organization member menu
+                            _, member_role, org_id = role.split("_")
+                            print(f"1. View Organization Details")
+                            print(f"2. View Member Fees")
+                            print(f"3. View Organization Members")
+                            print(f"4. Logout")
+                            print(f"5. Exit")
+                            
+                            choice = input("\nEnter your choice (1-5): ")
+                            
+                            if choice == '1':
+                                organization_manager.view_organization_details(int(org_id))
+                            elif choice == '2':
+                                fees_manager.view_member_fees()
+                            elif choice == '3':
+                                membership_manager.view_org_members(int(org_id))
+                            elif choice == '4':
+                                print("\nLogging out...")
+                                print("✓ Successfully logged out!")
+                                break
+                            elif choice == '5':
+                                print("\nThank you for using the Student Organization Management System!")
+                                return
+                            else:
+                                print("Invalid choice! Please try again.")
             elif choice == '2':
-                signup(db_manager)
-            elif choice == '3':
                 print("\nThank you for using the Student Organization Management System!")
                 break
             else:
