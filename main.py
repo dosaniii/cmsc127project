@@ -7,6 +7,7 @@ from tabulate import tabulate
 from membership import MembershipManager
 from organization import OrganizationManager
 from fees import FeesManager
+from reports import AdvancedReports
 
 class DatabaseManager:
     def __init__(self):
@@ -121,133 +122,68 @@ def signup(db_manager: DatabaseManager) -> bool:
     """Handle student signup"""
     print("\n=== Student Signup ===")
     try:
-        # Check if student number already exists
-        while True:
-            stud_no = input("Student Number: ")
-            db_manager.cursor.execute("SELECT stud_no FROM student WHERE stud_no = %s", (stud_no,))
-            if not db_manager.cursor.fetchone():
-                break
-            print("✗ Student number already exists! Please try another one.")
-        
+        stud_no = input("Student Number: ")
         firstname = input("First Name: ")
         lastname = input("Last Name: ")
         degrprog = input("Degree Program: ")
-        
-        while True:
-            try:
-                batch = int(input("Batch Year: "))
-                break
-            except ValueError:
-                print("✗ Please enter a valid year!")
-        
-        while True:
-            gender = input("Gender (M/F): ").upper()
-            if gender in ['M', 'F']:
-                break
-            print("✗ Please enter M or F!")
-        
-        while True:
-            birthday = input("Birthday (YYYY-MM-DD): ")
-            try:
-                datetime.strptime(birthday, '%Y-%m-%d')
-                break
-            except ValueError:
-                print("✗ Please enter a valid date in YYYY-MM-DD format!")
-        
-        # Insert student record
+        batch = int(input("Batch Year: "))
+        gender = input("Gender (M/F): ").upper()
+        birthday = input("Birthday (YYYY-MM-DD): ")
+
+        # Check if student number already exists
+        db_manager.cursor.execute("SELECT stud_no FROM student WHERE stud_no = %s", (stud_no,))
+        if db_manager.cursor.fetchone():
+            print("\u2717 Student number already exists!")
+            return False
+
         query = """INSERT INTO student (
                     stud_no, firstname, lastname, degrprog, batch, gender, birthday
                   ) VALUES (%s, %s, %s, %s, %s, %s, %s)"""
         values = (stud_no, firstname, lastname, degrprog, batch, gender, birthday)
-        
+
         db_manager.cursor.execute(query, values)
         db_manager.connection.commit()
-        
-        # Show available organizations for membership
-        print("\nAvailable Organizations:")
-        db_manager.cursor.execute("""
-            SELECT org_id, org_name, year_established 
-            FROM organization 
-            ORDER BY org_name
-        """)
-        organizations = db_manager.cursor.fetchall()
-        
-        if organizations:
-            table_data = [[
-                idx + 1,
-                org['org_id'],
-                org['org_name'],
-                org['year_established'].strftime('%Y-%m-%d')
-            ] for idx, org in enumerate(organizations)]
-            
-            print(tabulate(table_data,
-                          headers=["#", "ID", "Name", "Established"],
-                          tablefmt="grid"))
-            
-            while True:
-                try:
-                    choice = int(input("\nSelect organization to join (0 to skip): "))
-                    if choice == 0:
-                        break
-                    if 1 <= choice <= len(organizations):
-                        org_id = organizations[choice - 1]['org_id']
-                        # Add student to organization
-                        current_year = datetime.now().year
-                        query = """INSERT INTO belongs_to (
-                                    stud_no, org_id, semester, acad_year, status, role, committee, batch_year
-                                  ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-                        values = (stud_no, org_id, '1', f"{current_year}-{current_year+1}", 'Active', 'Member', 'General', batch)
-                        db_manager.cursor.execute(query, values)
-                        db_manager.connection.commit()
-                        print(f"✓ Successfully joined {organizations[choice - 1]['org_name']}!")
-                        break
-                    print("Invalid choice! Please try again.")
-                except ValueError:
-                    print("Please enter a valid number!")
-        
-        print("✓ Signup successful! You can now login.")
+        print("\u2713 Signup successful! You can now login.")
         return True
-        
+
     except Exception as e:
-        print(f"✗ Error during signup: {e}")
+        print(f"\u2717 Error during signup: {e}")
         return False
 
 def login(db_manager: DatabaseManager) -> Tuple[bool, str]:
     """Handle user login and return user role"""
     print("\n=== Login ===")
-    print("1. Admin Login")
-    print("2. Student Login")
-    print("3. Back to Main Menu")
-    
-    choice = input("\nEnter your choice (1-3): ")
-    
+    print("1. Organization Login")
+    print("2. Member Login")
+
+    choice = input("\nEnter your choice (1-2): ")
+
     if choice == '1':
-        print("\n=== Admin Login ===")
         username = input("Username: ")
         password = input("Password: ")
         is_valid, role = authenticate_user(db_manager, username, password)
         if is_valid and role == "admin":
-            print("✓ Admin login successful!")
+            print("\u2713 Organization login successful!")
             return True, role
         else:
-            print("✗ Invalid admin credentials!")
+            print("\u2717 Invalid organization credentials!")
             return False, ""
-            
+
     elif choice == '2':
-        print("\n=== Student Login ===")
         stud_no = input("Student Number: ")
         is_valid, role = authenticate_user(db_manager, stud_no, "")
-        if is_valid and role.startswith("member_"):
-            # Extract role information
-            _, member_role, org_id = role.split("_")
-            print(f"✓ Login successful! Welcome to the organization.")
-            return True, role
-        else:
-            print("✗ Invalid student number or not an active organization member!")
+        if not is_valid:
+            # Check if student exists in the database
+            db_manager.cursor.execute("SELECT stud_no FROM student WHERE stud_no = %s", (stud_no,))
+            student = db_manager.cursor.fetchone()
+            if student:
+                print("\u2717 You are not yet an active organization member.")
+            else:
+                print("\u2717 Invalid student number!")
             return False, ""
-            
-    elif choice == '3':
-        return False, ""
+        else:
+            print("\u2713 Login successful! Welcome to the organization.")
+            return True, role
     else:
         print("Invalid choice!")
         return False, ""
@@ -273,6 +209,7 @@ def main():
                     membership_manager = MembershipManager(db_manager)
                     organization_manager = OrganizationManager(db_manager)
                     fees_manager = FeesManager(db_manager)
+                    reports_manager = AdvancedReports(db_manager)
                     
                     while True:
                         print("\n" + "=" * 70)
@@ -283,10 +220,11 @@ def main():
                             print("1. Manage Members")
                             print("2. Manage Organizations")
                             print("3. Manage Fees")
-                            print("4. Logout")
-                            print("5. Exit")
+                            print("4. Advanced Reports")
+                            print("5. Logout")
+                            print("6. Exit")
                             
-                            choice = input("\nEnter your choice (1-5): ")
+                            choice = input("\nEnter your choice (1-6): ")
                             
                             if choice == '1':
                                 membership_manager.manage_membership()
@@ -295,10 +233,12 @@ def main():
                             elif choice == '3':
                                 fees_manager.manage_fees()
                             elif choice == '4':
+                                reports_manager.advanced_reports_menu()
+                            elif choice == '5':
                                 print("\nLogging out...")
                                 print("✓ Successfully logged out!")
                                 break
-                            elif choice == '5':
+                            elif choice == '6':
                                 print("\nThank you for using the Student Organization Management System!")
                                 return
                             else:
