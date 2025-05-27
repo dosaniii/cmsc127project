@@ -50,7 +50,7 @@ class OrganizationManager:
         except Exception as e:
             print(f"✗ Error: {e}")
 
-    def view_organization_details(self):
+    def view_organization_details(self, org_id):
         """View organization details"""
         org_id = input("Organization ID: ")
         
