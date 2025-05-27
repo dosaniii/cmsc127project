@@ -118,7 +118,100 @@ def authenticate_user(db_manager: DatabaseManager, username: str, password: str)
         return True, f"member_{result['role']}_{result['org_id']}"
     return False, ""
 
-
+def signup(db_manager: DatabaseManager) -> bool:
+    """Handle student signup"""
+    print("\n=== Student Signup ===")
+    try:
+        # Check if student number already exists
+        while True:
+            stud_no = input("Student Number: ")
+            db_manager.cursor.execute("SELECT stud_no FROM student WHERE stud_no = %s", (stud_no,))
+            if not db_manager.cursor.fetchone():
+                break
+            print("✗ Student number already exists! Please try another one.")
+        
+        firstname = input("First Name: ")
+        lastname = input("Last Name: ")
+        degrprog = input("Degree Program: ")
+        
+        while True:
+            try:
+                batch = int(input("Batch Year: "))
+                break
+            except ValueError:
+                print("✗ Please enter a valid year!")
+        
+        while True:
+            gender = input("Gender (M/F): ").upper()
+            if gender in ['M', 'F']:
+                break
+            print("✗ Please enter M or F!")
+        
+        while True:
+            birthday = input("Birthday (YYYY-MM-DD): ")
+            try:
+                datetime.strptime(birthday, '%Y-%m-%d')
+                break
+            except ValueError:
+                print("✗ Please enter a valid date in YYYY-MM-DD format!")
+        
+        # Insert student record
+        query = """INSERT INTO student (
+                    stud_no, firstname, lastname, degrprog, batch, gender, birthday
+                  ) VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+        values = (stud_no, firstname, lastname, degrprog, batch, gender, birthday)
+        
+        db_manager.cursor.execute(query, values)
+        db_manager.connection.commit()
+        
+        # Show available organizations for membership
+        print("\nAvailable Organizations:")
+        db_manager.cursor.execute("""
+            SELECT org_id, org_name, year_established 
+            FROM organization 
+            ORDER BY org_name
+        """)
+        organizations = db_manager.cursor.fetchall()
+        
+        if organizations:
+            table_data = [[
+                idx + 1,
+                org['org_id'],
+                org['org_name'],
+                org['year_established'].strftime('%Y-%m-%d')
+            ] for idx, org in enumerate(organizations)]
+            
+            print(tabulate(table_data,
+                          headers=["#", "ID", "Name", "Established"],
+                          tablefmt="grid"))
+            
+            while True:
+                try:
+                    choice = int(input("\nSelect organization to join (0 to skip): "))
+                    if choice == 0:
+                        break
+                    if 1 <= choice <= len(organizations):
+                        org_id = organizations[choice - 1]['org_id']
+                        # Add student to organization
+                        current_year = datetime.now().year
+                        query = """INSERT INTO belongs_to (
+                                    stud_no, org_id, semester, acad_year, status, role, committee, batch_year
+                                  ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
+                        values = (stud_no, org_id, '1', f"{current_year}-{current_year+1}", 'Active', 'Member', 'General', batch)
+                        db_manager.cursor.execute(query, values)
+                        db_manager.connection.commit()
+                        print(f"✓ Successfully joined {organizations[choice - 1]['org_name']}!")
+                        break
+                    print("Invalid choice! Please try again.")
+                except ValueError:
+                    print("Please enter a valid number!")
+        
+        print("✓ Signup successful! You can now login.")
+        return True
+        
+    except Exception as e:
+        print(f"✗ Error during signup: {e}")
+        return False
 
 def login(db_manager: DatabaseManager) -> Tuple[bool, str]:
     """Handle user login and return user role"""
