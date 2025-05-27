@@ -1,4 +1,5 @@
 from datetime import datetime
+from tabulate import tabulate
 
 class MembershipManager:
     def __init__(self, db_manager):
@@ -11,9 +12,10 @@ class MembershipManager:
             print("1. Add Member to Organization")
             print("2. Update Member Status")
             print("3. View Member Details")
-            print("4. Back to Main Menu")
+            print("4. View Organization Members")
+            print("5. Back to Main Menu")
             
-            choice = input("\nEnter your choice (1-4): ")
+            choice = input("\nEnter your choice (1-5): ")
             
             if choice == '1':
                 self.add_member()
@@ -22,6 +24,9 @@ class MembershipManager:
             elif choice == '3':
                 self.view_member_details()
             elif choice == '4':
+                org_id = input("Organization ID: ")
+                self.view_org_members(org_id)
+            elif choice == '5':
                 break
 
     def add_member(self):
@@ -100,3 +105,48 @@ class MembershipManager:
                 print("No records found.")
         except Exception as e:
             print(f"✗ Error: {e}")
+
+    def view_org_members(self, org_id):
+        """View all members of an organization"""
+        query = """SELECT s.stud_no, 
+                         CONCAT(s.firstname, ' ', s.lastname) AS full_name,
+                         b.role, b.status, s.gender, s.degrprog,
+                         b.batch_year, b.committee, o.org_name,
+                         b.semester, b.acad_year
+                  FROM student s
+                  JOIN belongs_to b ON s.stud_no = b.stud_no
+                  JOIN organization o ON b.org_id = o.org_id
+                  WHERE b.org_id = %s
+                  ORDER BY b.role, s.lastname, s.firstname"""
+        
+        try:
+            self.db_manager.cursor.execute(query, (org_id,))
+            results = self.db_manager.cursor.fetchall()
+            
+            if results:
+                # Convert results to list of lists for tabulate
+                table_data = [[
+                    row['stud_no'],
+                    row['full_name'],
+                    row['role'],
+                    row['status'],
+                    row['gender'],
+                    row['degrprog'],
+                    row['batch_year'],
+                    row['committee'],
+                    row['org_name'],
+                    row['semester'],
+                    row['acad_year']
+                ] for row in results]
+                
+                headers = ["Student No", "Name", "Role", "Status", "Gender", 
+                          "Degree Program", "Batch Year", "Committee", 
+                          "Organization", "Semester", "Academic Year"]
+                print("\nOrganization Members:")
+                print(tabulate(table_data, headers=headers, tablefmt="grid"))
+                print(f"\nTotal members: {len(results)}")
+            else:
+                print("No members found in this organization!")
+                
+        except Exception as e:
+            print(f"✗ Error viewing organization members: {e}")
