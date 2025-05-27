@@ -131,33 +131,39 @@ class FeesManager:
                     print("✗ No students found with that name!")
             
             elif choice == '3':
-                # Show all students with their details
-                self.db_manager.cursor.execute("""
-                    SELECT stud_no, firstname, lastname, degrprog, batch, gender, birthday 
-                    FROM student 
-                    ORDER BY lastname, firstname
-                """)
-                results = self.db_manager.cursor.fetchall()
-                
-                if results:
-                    table_data = [[
-                        row['stud_no'],
-                        row['firstname'],
-                        row['lastname'],
-                        row['degrprog'],
-                        row['batch'],
-                        row['gender'],
-                        row['birthday']
-                    ] for row in results]
+                try:
+                    # Show all students with their details
+                    self.db_manager.cursor.execute("""
+                        SELECT stud_no, firstname, lastname, degrprog, batch, gender, birthday 
+                        FROM student 
+                        ORDER BY lastname, firstname
+                    """)
+                    results = self.db_manager.cursor.fetchall()
                     
-                    headers = ["Student No", "First Name", "Last Name", "Program", "Batch", "Gender", "Birthday"]
-                    print("\nAll Students:")
-                    print(tabulate(table_data, headers=headers, tablefmt="grid"))
-                    
-                    stud_no = input("\nEnter the student number from the list: ")
-                    return stud_no
-                else:
-                    print("No students found in the database!")
+                    if results:
+                        table_data = [[
+                            row['stud_no'],
+                            row['firstname'],
+                            row['lastname'],
+                            row['degrprog'],
+                            row['batch'],
+                            row['gender'],
+                            row['birthday']
+                        ] for row in results]
+                        
+                        headers = ["Student No", "First Name", "Last Name", "Program", "Batch", "Gender", "Birthday"]
+                        print("\nAll Students:")
+                        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+                        
+                        stud_no = input("\nEnter the student number from the list: ")
+                        return stud_no
+                    else:
+                        print("No students found in the database!")
+                except Error as e:
+                    print(f"✗ Error viewing students: {e}")
+                    # Clear any unread results
+                    while self.db_manager.cursor.nextset():
+                        pass
                     
             elif choice == '4':
                 return None
