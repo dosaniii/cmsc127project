@@ -2,6 +2,7 @@ from datetime import datetime
 from tabulate import tabulate
 from mysql.connector import Error
 from typing import Optional
+from decimal import Decimal  # Add this import at the top
 
 class FeesManager:
     def __init__(self, db_manager):
@@ -307,11 +308,11 @@ class FeesManager:
             print(f"Amount Paid: {payment['amount_paid'] or 0}")
             print(f"Due Date: {payment['due_date']}")
             
-            amount_paid = float(input("Enter amount to pay: "))
+            amount_paid = Decimal(input("Enter amount to pay: "))  # Change this line
             payment_date = datetime.now().strftime('%Y-%m-%d')
             
             # Calculate new total paid amount
-            new_amount_paid = (payment['amount_paid'] or 0) + amount_paid
+            new_amount_paid = (payment['amount_paid'] or Decimal('0')) + amount_paid
             
             # Determine payment status
             if new_amount_paid >= payment['amount']:
