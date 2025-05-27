@@ -2,10 +2,12 @@
 
 import mysql.connector
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, Optional
+from tabulate import tabulate
 from membership import MembershipManager
 from organization import OrganizationManager
 from fees import FeesManager
+from reports import AdvancedReports
 
 class DatabaseManager:
     def __init__(self):
@@ -36,13 +38,72 @@ class DatabaseManager:
         if hasattr(self, 'connection') and self.connection:
             self.connection.close()
 
+def search_student(db_manager: DatabaseManager, search_term: str) -> Optional[str]:
+    """Search for a student by name or student number"""
+    try:
+        # Try exact student number match first
+        db_manager.cursor.execute("""
+            SELECT stud_no, firstname, lastname, degrprog, batch 
+            FROM student 
+            WHERE stud_no = %s
+        """, (search_term,))
+        result = db_manager.cursor.fetchone()
+        
+        if result:
+            return result['stud_no']
+        
+        # If no exact match, search by name
+        db_manager.cursor.execute("""
+            SELECT stud_no, firstname, lastname, degrprog, batch 
+            FROM student 
+            WHERE firstname LIKE %s OR lastname LIKE %s
+        """, (f"%{search_term}%", f"%{search_term}%"))
+        results = db_manager.cursor.fetchall()
+        
+        if not results:
+            print("✗ No students found!")
+            return None
+            
+        if len(results) == 1:
+            return results[0]['stud_no']
+            
+        # If multiple results, show them in a table
+        print("\nMultiple students found. Please select one:")
+        table_data = [[
+            idx + 1,
+            row['stud_no'],
+            row['firstname'],
+            row['lastname'],
+            row['degrprog'],
+            row['batch']
+        ] for idx, row in enumerate(results)]
+        
+        print(tabulate(table_data, 
+                      headers=["#", "Student No", "First Name", "Last Name", "Program", "Batch"],
+                      tablefmt="grid"))
+        
+        while True:
+            try:
+                choice = int(input("\nEnter the number of the student (0 to cancel): "))
+                if choice == 0:
+                    return None
+                if 1 <= choice <= len(results):
+                    return results[choice - 1]['stud_no']
+                print("Invalid choice! Please try again.")
+            except ValueError:
+                print("Please enter a valid number!")
+                
+    except mysql.connector.Error as e:
+        print(f"✗ Error searching for student: {e}")
+        return None
+
 def authenticate_user(db_manager: DatabaseManager, username: str, password: str) -> Tuple[bool, str]:
     """Authenticate a user and return their role"""
     # Check admin credentials
     if username == "admin" and password == "admin":
         return True, "admin"
-
-    # Check organization member credentials
+    
+    # Check student credentials
     query = """
         SELECT s.stud_no, b.role, b.org_id, o.org_name
         FROM student s
@@ -52,7 +113,7 @@ def authenticate_user(db_manager: DatabaseManager, username: str, password: str)
     """
     db_manager.cursor.execute(query, (username,))
     result = db_manager.cursor.fetchone()
-
+    
     if result:
         return True, f"member_{result['role']}_{result['org_id']}"
     return False, ""
@@ -132,36 +193,39 @@ def main():
     print("\n" + "=" * 70)
     print("              STUDENT ORGANIZATION MANAGEMENT SYSTEM")
     print("=" * 70)
-
+    
     with DatabaseManager() as db_manager:
         while True:
             print("\n1. Login")
-            print("2. Signup")
+            print("2. Signup (Students Only)")
             print("3. Exit")
-
+            
             choice = input("\nEnter your choice (1-3): ")
-
+            
             if choice == '1':
                 is_valid, role = login(db_manager)
                 if is_valid:
+                    # Initialize managers
                     membership_manager = MembershipManager(db_manager)
                     organization_manager = OrganizationManager(db_manager)
                     fees_manager = FeesManager(db_manager)
-
+                    reports_manager = AdvancedReports(db_manager)
+                    
                     while True:
                         print("\n" + "=" * 70)
                         print("                    MAIN MENU")
                         print("=" * 70)
-
+                        
                         if role == "admin":
                             print("1. Manage Members")
                             print("2. Manage Organizations")
                             print("3. Manage Fees")
-                            print("4. Logout")
-                            print("5. Exit")
-
-                            choice = input("\nEnter your choice (1-5): ")
-
+                            print("4. Advanced Reports")
+                            print("5. Logout")
+                            print("6. Exit")
+                            
+                            choice = input("\nEnter your choice (1-6): ")
+                            
                             if choice == '1':
                                 membership_manager.manage_membership()
                             elif choice == '2':
@@ -169,24 +233,27 @@ def main():
                             elif choice == '3':
                                 fees_manager.manage_fees()
                             elif choice == '4':
-                                print("\nLogging out...")
-                                print("\u2713 Successfully logged out!")
-                                break
+                                reports_manager.advanced_reports_menu()
                             elif choice == '5':
+                                print("\nLogging out...")
+                                print("✓ Successfully logged out!")
+                                break
+                            elif choice == '6':
                                 print("\nThank you for using the Student Organization Management System!")
                                 return
                             else:
                                 print("Invalid choice! Please try again.")
                         else:
+                            # Organization member menu
                             _, member_role, org_id = role.split("_")
-                            print("1. View Organization Details")
-                            print("2. View Member Fees")
-                            print("3. View Organization Members")
-                            print("4. Logout")
-                            print("5. Exit")
-
+                            print(f"1. View Organization Details")
+                            print(f"2. View Member Fees")
+                            print(f"3. View Organization Members")
+                            print(f"4. Logout")
+                            print(f"5. Exit")
+                            
                             choice = input("\nEnter your choice (1-5): ")
-
+                            
                             if choice == '1':
                                 organization_manager.view_organization_details(int(org_id))
                             elif choice == '2':
@@ -195,7 +262,7 @@ def main():
                                 membership_manager.view_org_members(int(org_id))
                             elif choice == '4':
                                 print("\nLogging out...")
-                                print("\u2713 Successfully logged out!")
+                                print("✓ Successfully logged out!")
                                 break
                             elif choice == '5':
                                 print("\nThank you for using the Student Organization Management System!")
