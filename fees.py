@@ -2,6 +2,7 @@ from datetime import datetime
 from tabulate import tabulate
 from mysql.connector import Error
 from typing import Optional
+from decimal import Decimal  # Add this import at the top
 
 class FeesManager:
     def __init__(self, db_manager):
@@ -130,33 +131,39 @@ class FeesManager:
                     print("✗ No students found with that name!")
             
             elif choice == '3':
-                # Show all students with their details
-                self.db_manager.cursor.execute("""
-                    SELECT stud_no, firstname, lastname, degrprog, batch, gender, birthday 
-                    FROM student 
-                    ORDER BY lastname, firstname
-                """)
-                results = self.db_manager.cursor.fetchall()
-                
-                if results:
-                    table_data = [[
-                        row['stud_no'],
-                        row['firstname'],
-                        row['lastname'],
-                        row['degrprog'],
-                        row['batch'],
-                        row['gender'],
-                        row['birthday']
-                    ] for row in results]
+                try:
+                    # Show all students with their details
+                    self.db_manager.cursor.execute("""
+                        SELECT stud_no, firstname, lastname, degrprog, batch, gender, birthday 
+                        FROM student 
+                        ORDER BY lastname, firstname
+                    """)
+                    results = self.db_manager.cursor.fetchall()
                     
-                    headers = ["Student No", "First Name", "Last Name", "Program", "Batch", "Gender", "Birthday"]
-                    print("\nAll Students:")
-                    print(tabulate(table_data, headers=headers, tablefmt="grid"))
-                    
-                    stud_no = input("\nEnter the student number from the list: ")
-                    return stud_no
-                else:
-                    print("No students found in the database!")
+                    if results:
+                        table_data = [[
+                            row['stud_no'],
+                            row['firstname'],
+                            row['lastname'],
+                            row['degrprog'],
+                            row['batch'],
+                            row['gender'],
+                            row['birthday']
+                        ] for row in results]
+                        
+                        headers = ["Student No", "First Name", "Last Name", "Program", "Batch", "Gender", "Birthday"]
+                        print("\nAll Students:")
+                        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+                        
+                        stud_no = input("\nEnter the student number from the list: ")
+                        return stud_no
+                    else:
+                        print("No students found in the database!")
+                except Error as e:
+                    print(f"✗ Error viewing students: {e}")
+                    # Clear any unread results
+                    while self.db_manager.cursor.nextset():
+                        pass
                     
             elif choice == '4':
                 return None
@@ -307,11 +314,11 @@ class FeesManager:
             print(f"Amount Paid: {payment['amount_paid'] or 0}")
             print(f"Due Date: {payment['due_date']}")
             
-            amount_paid = float(input("Enter amount to pay: "))
+            amount_paid = Decimal(input("Enter amount to pay: "))  # Change this line
             payment_date = datetime.now().strftime('%Y-%m-%d')
             
             # Calculate new total paid amount
-            new_amount_paid = (payment['amount_paid'] or 0) + amount_paid
+            new_amount_paid = (payment['amount_paid'] or Decimal('0')) + amount_paid
             
             # Determine payment status
             if new_amount_paid >= payment['amount']:
@@ -344,10 +351,30 @@ class FeesManager:
             if not stud_no:
                 return
                 
-            # Use the GetMemberUnpaidFees stored procedure
-            self.db_manager.cursor.callproc('GetMemberUnpaidFees', (stud_no,))
-            results = self.db_manager.cursor.stored_results()
-            results = next(results).fetchall()
+            # Show all unpaid and partial payments
+            query = """
+                SELECT 
+                    s.stud_no,
+                    CONCAT(s.firstname, ' ', s.lastname) AS name,
+                    o.org_name,
+                    b.acad_year,
+                    b.semester,
+                    p.payment_status,
+                    p.due_date,
+                    p.amount,
+                    p.amount_paid,
+                    (p.amount - p.amount_paid) as remaining_amount
+                FROM payment p
+                JOIN student s ON p.stud_no = s.stud_no
+                JOIN organization o ON p.org_id = o.org_id
+                JOIN belongs_to b ON b.stud_no = s.stud_no AND b.org_id = o.org_id
+                WHERE s.stud_no = %s 
+                AND p.payment_status IN ('Unpaid', 'Partial')
+                ORDER BY p.due_date
+            """
+            
+            self.db_manager.cursor.execute(query, (stud_no,))
+            results = self.db_manager.cursor.fetchall()
             
             if results:
                 # Convert results to list of lists for tabulate
@@ -358,15 +385,19 @@ class FeesManager:
                     row['acad_year'],
                     row['semester'],
                     row['payment_status'],
-                    row['due_date']
+                    row['due_date'],
+                    row['amount'],
+                    row['amount_paid'],
+                    row['remaining_amount']
                 ] for row in results]
                 
                 headers = ["Student No", "Name", "Organization", "Academic Year", 
-                          "Semester", "Status", "Due Date"]
+                          "Semester", "Status", "Due Date", "Total Amount", 
+                          "Amount Paid", "Remaining Amount"]
                 print("\nMember Fees:")
                 print(tabulate(table_data, headers=headers, tablefmt="grid"))
             else:
-                print("No fees found for this member!")
+                print("No unpaid or partial fees found for this member!")
                 
         except Error as e:
             print(f"✗ Error viewing member fees: {e}")
