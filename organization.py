@@ -50,17 +50,20 @@ class OrganizationManager:
         except Exception as e:
             print(f"✗ Error: {e}")
 
-    def view_organization_details(self):
+    def view_organization_details(self, org_id=None):
         """View organization details"""
-        org_id = input("Organization ID: ")
-        
-        query = """SELECT o.*, COUNT(b.stud_no) as member_count 
-                  FROM organization o 
-                  LEFT JOIN belongs_to b ON o.org_id = b.org_id 
-                  WHERE o.org_id = %s 
-                  GROUP BY o.org_id"""
-        
         try:
+            if org_id is None:
+                org_id = input("Organization ID: ")
+            else:
+                org_id = str(org_id)  # Convert to string for consistency
+            
+            query = """SELECT o.*, COUNT(b.stud_no) as member_count 
+                      FROM organization o 
+                      LEFT JOIN belongs_to b ON o.org_id = b.org_id 
+                      WHERE o.org_id = %s 
+                      GROUP BY o.org_id"""
+            
             self.db_manager.cursor.execute(query, (org_id,))
             result = self.db_manager.cursor.fetchone()
             
